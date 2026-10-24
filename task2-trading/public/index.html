@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Trading Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f0f2f5; margin: 0; padding: 30px; display: flex; justify-content: center; }
+    .wrap { width: 560px; }
+    .card { background: white; border-radius: 10px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+    h2 { margin-top: 0; }
+    .prices { display: flex; flex-wrap: wrap; gap: 12px; }
+    .price { flex: 1 1 140px; border: 1px solid #ddd; border-radius: 8px; padding: 12px; text-align: center; }
+    .price .sym { font-weight: bold; color: #555; }
+    .price .val { font-size: 32px; font-weight: bold; margin: 4px 0; }
+    .up { color: #0a8f3c; } .down { color: #c62828; } .flat { color: #222; }
+    .empty { color: #888; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid #eee; }
+    .form { display: flex; gap: 6px; flex-wrap: wrap; }
+    .form input, .form select, .form button { font-size: 14px; padding: 8px; }
+    .form input { width: 90px; }
+    .form button { background: #ff6600; color: white; border: none; border-radius: 6px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2>Latest traded price</h2>
+      <div id="prices" class="prices"><span class="empty">No trades yet.</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Send an order (100 shares)</h2>
+      <div class="form">
+        <input id="user" placeholder="Username">
+        <input id="stock" placeholder="Stock" value="XYZ">
+        <select id="side"><option>BUY</option><option>SELL</option></select>
+        <input id="price" placeholder="Price" type="number" step="0.01">
+        <button id="sendBtn">Send</button>
+      </div>
+      <div id="status" class="empty" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="card">
+      <h2>Recent trades</h2>
+      <table>
+        <thead><tr><th>Time</th><th>Stock</th><th>Price</th><th>Buyer</th><th>Seller</th></tr></thead>
+        <tbody id="history"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const ws = new WebSocket(`ws://${location.host}`);
+    const $ = (id) => document.getElementById(id);
+    const latest = {};     // stock -> price
+    const direction = {};  // stock -> 'up' | 'down' | 'flat'
+
+    function renderPrices() {
+      const box = $('prices');
+      const stocks = Object.keys(latest).sort();
+      if (!stocks.length) { box.innerHTML = '<span class="empty">No trades yet.</span>'; return; }
+      box.innerHTML = '';
+      stocks.forEach((s) => {
+        const d = document.createElement('div');
+        d.className = 'price';
+        d.innerHTML = `<div class="sym"></div><div class="val ${direction[s] || 'flat'}"></div>`;
+        d.querySelector('.sym').textContent = s;
+        d.querySelector('.val').textContent = latest[s].toFixed(2);
+        box.appendChild(d);
+      });
+    }
+
+    function addHistoryRow(t, atTop) {
+      const tr = document.createElement('tr');
+      [new Date(t.time).toLocaleTimeString(), t.stock, t.price.toFixed(2), t.buyer, t.seller]
+        .forEach((v) => { const td = document.createElement('td'); td.textContent = v; tr.appendChild(td); });
+      const body = $('history');
+      if (atTop) body.insertBefore(tr, body.firstChild); else body.appendChild(tr);
+    }
+
+    function applyTrade(t) {
+      const prev = latest[t.stock];
+      direction[t.stock] = prev === undefined ? 'flat' : t.price > prev ? 'up' : t.price < prev ? 'down' : 'flat';
+      latest[t.stock] = t.price;
+    }
+
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.type === 'snapshot') {
+        Object.values(data.latest).forEach((t) => { latest[t.stock] = t.price; });
+        data.history.forEach((t) => addHistoryRow(t, false));
+        renderPrices();
+      } else if (data.type === 'trade') {
+        applyTrade(data.trade);
+        addHistoryRow(data.trade, true);
+        renderPrices();
+      }
+    };
+
+    $('sendBtn').onclick = () => {
+      const price = $('price').value;
+      if (!$('user').value.trim() || price === '') { $('status').textContent = 'Enter a username and a price.'; return; }
+      ws.send(JSON.stringify({
+        type: 'order', user: $('user').value, stock: $('stock').value || 'XYZ',
+        side: $('side').value, price
+      }));
+      $('status').textContent = `Sent: ${$('user').value} ${$('side').value} ${$('stock').value} @ ${price}`;
+    };
+  </script>
+</body>
+</html>

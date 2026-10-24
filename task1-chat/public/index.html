@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RabbitMQ Chat</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f0f2f5; margin: 0; display: flex; justify-content: center; padding: 40px; }
+    .card { background: white; border-radius: 10px; padding: 24px; width: 420px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+    h2 { margin-top: 0; }
+    input, button { font-size: 15px; padding: 9px; margin: 4px 0; box-sizing: border-box; }
+    input { width: 100%; }
+    button { background: #ff6600; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    button:hover { background: #e55a00; }
+    #login button { width: 100%; }
+    #chat { display: none; }
+    #messages { height: 320px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px; padding: 8px; background: #fafafa; }
+    .msg { margin: 4px 0; padding: 6px 10px; border-radius: 8px; background: #e9e9eb; max-width: 85%; word-wrap: break-word; }
+    .msg.me { background: #ffd9bf; margin-left: auto; }
+    .msg .who { font-size: 12px; font-weight: bold; color: #555; }
+    .row { display: flex; gap: 6px; }
+    .row input { flex: 1; }
+    #error { color: #c00; font-size: 14px; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="login">
+      <h2>Join a chat room</h2>
+      <input id="user" placeholder="Username" autocomplete="off">
+      <input id="room" list="rooms" placeholder="Room (pick one or type a new name)" autocomplete="off">
+      <datalist id="rooms">
+        <option value="room">
+        <option value="general">
+        <option value="sports">
+        <option value="music">
+      </datalist>
+      <div id="error"></div>
+      <button id="joinBtn">Join</button>
+    </div>
+
+    <div id="chat">
+      <h2 id="title"></h2>
+      <div id="messages"></div>
+      <div class="row">
+        <input id="text" placeholder="Type a message and press Enter" autocomplete="off">
+        <button id="sendBtn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const ws = new WebSocket(`ws://${location.host}`);
+    let me = null;
+
+    const $ = (id) => document.getElementById(id);
+
+    function join() {
+      $('error').textContent = '';
+      ws.send(JSON.stringify({ type: 'join', user: $('user').value, room: $('room').value }));
+    }
+
+    function sendMessage() {
+      const text = $('text').value;
+      if (!text.trim()) return;
+      ws.send(JSON.stringify({ type: 'message', text }));
+      $('text').value = '';
+    }
+
+    function addMessage(user, text) {
+      const div = document.createElement('div');
+      div.className = 'msg' + (user === me ? ' me' : '');
+      const who = document.createElement('div');
+      who.className = 'who';
+      who.textContent = user;
+      const body = document.createElement('div');
+      body.textContent = text;
+      div.appendChild(who);
+      div.appendChild(body);
+      $('messages').appendChild(div);
+      $('messages').scrollTop = $('messages').scrollHeight;
+    }
+
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.type === 'joined') {
+        me = data.user;
+        $('login').style.display = 'none';
+        $('chat').style.display = 'block';
+        $('title').textContent = `Room: ${data.room} (you are ${data.user})`;
+        $('text').focus();
+      } else if (data.type === 'message') {
+        addMessage(data.user, data.text);
+      } else if (data.type === 'error') {
+        $('error').textContent = data.text;
+      }
+    };
+
+    $('joinBtn').onclick = join;
+    $('room').addEventListener('keydown', (e) => { if (e.key === 'Enter') join(); });
+    $('sendBtn').onclick = sendMessage;
+    $('text').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+  </script>
+</body>
+</html>
